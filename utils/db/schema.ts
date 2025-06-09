@@ -5,6 +5,7 @@ export const Users = pgTable('users', {
     id: serial('id').primaryKey(),
     email: varchar('email', {length: 255}).notNull().unique(),
     name: varchar('name', {length: 255}).notNull(),
+    role: varchar('role', {length: 50}).default('user').notNull(),
     createdAt: timestamp('created_at').defaultNow().notNull()
 })
 

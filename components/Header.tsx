@@ -19,6 +19,9 @@ import {EthereumPrivateKeyProvider} from '@web3auth/ethereum-provider'
 //import {useMediaQuery} from ''
 import {Menu, Coins, Leaf, Search, Bell, User, LogOut, ChevronDown, LogIn} from 'lucide-react'
 import {useMediaQuery} from '@/hook/useMediaQuery'
+import { confirmAlert } from 'react-confirm-alert'
+import 'react-confirm-alert/src/react-confirm-alert.css'; 
+import { title } from 'process'
 
 const clientId = process.env.WEB3_CLIENT_ID || '';
 
@@ -138,11 +141,43 @@ export default function Header ({onMenuClick, totalEarnings}: HeaderProps){
             setUserInfo(user)
             if(user.email){
                 localStorage.setItem('userEmail', user.email)
-                try {
-                    await createUser(user.email, user.name || 'Anonymous User') 
-                } catch (error) {
-                    console.error('Error creating user', error)
+                const existingUser = await getUserByEmail(user.email);
+                if(!existingUser){
+                    confirmAlert({
+                        title: 'User Role Selection',
+                        message: 'Are you a waste collector?',
+                        buttons: [
+                            {
+                                label: 'Yes, I am a collector',
+                                onClick: async () => {
+                                const role = 'collector';
+                                try {
+                                    await createUser(user.email, user.name || 'Anonymous User', role);
+                                    localStorage.setItem('userRole', role);
+                                } catch (error) {
+                                    console.error('Error creating user', error)
+                                }
+                            }
+                            }, 
+                            {
+                                label: 'No, I am a regular user',
+                            onClick: async () => {
+                                const role = 'user';
+                                try {
+                                    await createUser(user.email, user.name || 'Anonymous User', role);
+                                    localStorage.setItem('userRole', role);
+                                } catch (error) {
+                                    console.error('Error creating user', error)
+                                }
+                            }
+                            }
+                        ]
+                    })
                 }
+                else {
+                    localStorage.setItem('userRole', existingUser.role);
+                }
+                
             }
         } catch (error) {
             console.error('Error logging in', error)
