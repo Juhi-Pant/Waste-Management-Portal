@@ -29,11 +29,16 @@ export default function CollectPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
   const [user, setUser] = useState<{ id: number; email: string; name: string } | null>(null)
+  const [userRole, setUserRole] = useState<string | null>(null)
+  const [isCollector, setIsCollector] = useState(false)
 
   useEffect(() => {
     const fetchUserAndTasks = async () => {
       setLoading(true)
       try {
+        const storedUserRole = localStorage.getItem('userRole')
+        setUserRole(storedUserRole)
+        setIsCollector(storedUserRole === 'collector')
         // Fetch user
         const userEmail = localStorage.getItem('userEmail')
         if (userEmail) {
@@ -78,6 +83,10 @@ export default function CollectPage() {
       toast.error('Please log in to collect waste.')
       return
     }
+    if (!isCollector) {
+      toast.error('Only waste collectors can collect waste. Please contact support if you are a collector.')
+      return
+    }
 
     try {
       const updatedTask = await updateTaskStatus(taskId, newStatus, user.id)
@@ -115,7 +124,10 @@ export default function CollectPage() {
       toast.error('Missing required information for verification.')
       return
     }
-
+    if (!isCollector) {
+      toast.error('Only waste collectors can verify waste collection.')
+      return
+    }
     setVerificationStatus('verifying')
     
     try {
@@ -220,7 +232,8 @@ export default function CollectPage() {
     (currentPage - 1) * ITEMS_PER_PAGE,
     currentPage * ITEMS_PER_PAGE
   )
-
+  
+  
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-4xl mx-auto">
       <h1 className="text-3xl font-semibold mb-6 text-gray-800">Waste Collection Tasks</h1>
@@ -238,9 +251,19 @@ export default function CollectPage() {
         </Button>
       </div>
 
-      {loading ? (
+      {!isCollector ? (
         <div className="flex justify-center items-center h-64">
-          <Loader className="animate-spin h-8 w-8 text-gray-500" />
+          
+          <div className="bg-white p-8 rounded-lg shadow-md text-center">
+          <h2 className="text-2xl font-bold text-gray-800 mb-4">Access Restricted</h2>
+          <p className="text-gray-600 mb-4">
+            This page is only accessible to waste collectors. 
+            If you are a waste collector and seeing this message, please contact support.
+          </p>
+          <p className="text-sm text-gray-500">
+            Current role: {userRole || 'Not assigned'}
+          </p>
+        </div>
         </div>
       ) : (
         <>
@@ -389,6 +412,7 @@ export default function CollectPage() {
     </div>
   )
 }
+
 
 function StatusBadge({ status }: { status: CollectionTask['status'] }) {
   const statusConfig = {
