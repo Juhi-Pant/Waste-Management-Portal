@@ -48,6 +48,46 @@ export default function ReportPage () {
     const onload = useCallback((ref: google.maps.places.SearchBox) => {
         setSearchBox(ref)
     }, [])
+    const [coordinates, setCoordinates] = useState<{lat: number, lng: number} | null>(null);
+    const geocodeLatLng = (lat: number, lng: number)=>{
+      const geocoder = new google.maps.Geocoder();
+      const latLng = {lat, lng};
+
+      geocoder.geocode({location: latLng}, (results, status)=> {
+        if(status==='OK' && results && results[0]){
+          const address = results[0].formatted_address;
+          setNewReport(prev => ({
+            ...prev,
+            location: address,
+          }));
+        }
+        else {
+          console.error('Geocoder failed due to ', status);
+        }
+      })
+    }
+    const detectCurrentLocation = () => {
+      if(navigator.geolocation){
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            const {latitude, longitude} = position.coords;
+            setCoordinates({lat: latitude, lng: longitude});
+            geocodeLatLng(latitude, longitude);
+          },
+          (error) => {
+            console.error("Error detecting location: ", error)
+          }
+        )
+      }
+      else {
+        console.error('Gelocation not supported')
+      }
+    }
+    useEffect (() => {
+    if(isLoaded){
+      detectCurrentLocation();
+    }
+    }, [isLoaded])
     const onPlaceChange = () => {
       if(searchBox){
         const places = searchBox.getPlaces()
