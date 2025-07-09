@@ -27,6 +27,7 @@ export default function ReportPage () {
         location: '',
         type: '',
         amount: '',
+        coordinates: { lat: 0, lng: 0 } as { lat: number; lng: number } | null,
     })
     const[file, setFile] = useState<File |null>(null)
     const [preview, setPreview] = useState<string | null>(null)
@@ -59,6 +60,7 @@ export default function ReportPage () {
           setNewReport(prev => ({
             ...prev,
             location: address,
+            coordinates: {lat, lng},
           }));
         }
         else {
@@ -93,14 +95,31 @@ export default function ReportPage () {
         const places = searchBox.getPlaces()
         if(places && places.length>0){
             const place = places[0];
-            setNewReport(prev=> ({
+            const location = place.geometry?.location;
+            if(location){
+              const lat = location.lat();
+              const lng = location.lng();
+
+              setNewReport(prev=> ({
                 ...prev,
                 location: place.formatted_address || '',
+                coordinates: {lat, lng}
             }))
+            console.log('Cooordinates detected:', {lat, lng});
+            }
+            else{
+              console.log('Place has no geometry location')
+            }
+            
         }
       }
 
     }
+
+    useEffect(() => {
+  console.log('Updated newReport state:', newReport);
+}, [newReport]);
+
     const handleInputChange = (e:React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const {name, value} = e.target;
         setNewReport({...newReport, [name]: value})
@@ -191,19 +210,33 @@ export default function ReportPage () {
       }
       setIsSubmitted(true);
       try {
-        const report = await createReport (user.id, newReport.location, newReport.type, newReport.amount, preview || undefined, verificationResult? JSON.stringify(verificationResult):undefined) as any;
+        const report = await createReport(
+  user.id,
+  newReport.location,
+  newReport.type,
+  newReport.amount,
+  preview || undefined,
+  verificationResult ? JSON.stringify(verificationResult) : undefined,
+  newReport.coordinates // <- pass coordinates
+);
+
+if (!report) {
+  toast.error('Report creation failed. Please try again.');
+  return;
+}
         const formattedReport = {
             id: report.id,
             location: report.location,
             wasteType: report.wasteType,
             amount: report.amount,
             createdAt: report.createdAt.toISOString().split("T")[0],
+            coordinates: report.coordinates ?? null,
 
         } ;
         console.log("Reports before update:", reports);
         setReports(prevReports => (Array.isArray(prevReports) ? [formattedReport, ...prevReports] : [formattedReport]));
         //setReports([formattedReport,...reports])
-        setNewReport({location:"", type:"", amount:""})
+        setNewReport({location:"", type:"", amount:"", coordinates: null})
         setFile(null);
         setPreview(null);
         setVerificationStatus('idle');

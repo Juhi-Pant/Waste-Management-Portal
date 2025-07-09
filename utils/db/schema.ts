@@ -1,5 +1,5 @@
 import { time } from 'console'
-import {integer, varchar, pgTable, serial, text, timestamp, jsonb, boolean} from 'drizzle-orm/pg-core'
+import {integer, varchar, pgTable, serial, text, timestamp, json,jsonb, boolean} from 'drizzle-orm/pg-core'
 
 export const Users = pgTable('users', {
     id: serial('id').primaryKey(),
@@ -19,7 +19,9 @@ export const Reports = pgTable('reports', {
     createdAt: timestamp('created_at').defaultNow().notNull(),
     collectorId: integer('collector_id').references(()=> Users.id),
     id: serial('id').primaryKey(),
-    userId: integer('user_id').references(()=>Users.id).notNull()
+    userId: integer('user_id').references(()=>Users.id).notNull(),
+    coordinates: json('coordinates').$type<{ lat: number; lng: number }>(),
+
 })
 
 export const Rewards = pgTable('rewards', {

@@ -31,6 +31,8 @@ export default function CollectPage() {
   const [user, setUser] = useState<{ id: number; email: string; name: string } | null>(null)
   const [userRole, setUserRole] = useState<string | null>(null)
   const [isCollector, setIsCollector] = useState(false)
+  const [locationCoords, setLocationCoords] = useState<{ lat: number; lng: number } | null>(null);
+
 
   useEffect(() => {
     const fetchUserAndTasks = async () => {
@@ -69,16 +71,37 @@ export default function CollectPage() {
   }, [])
 
   const [selectedTask, setSelectedTask] = useState<CollectionTask | null>(null)
-  const [verificationImage, setVerificationImage] = useState<string | null>(null)
+ const [beforeImage, setBeforeImage] = useState<File | null>(null);
+ const [afterImage, setAfterImage] = useState<File | null>(null);
+ const [beforeImageBase64, setBeforeImageBase64] = useState<string | null>(null);
+const [afterImageBase64, setAfterImageBase64] = useState<string | null>(null);
+
   const [verificationStatus, setVerificationStatus] = useState<'idle' | 'verifying' | 'success' | 'failure'>('idle')
   const [verificationResult, setVerificationResult] = useState<{
     wasteTypeMatch: boolean;
     quantityMatch: boolean;
     confidence: number;
+    sameLocation: boolean;
+    cleaned: boolean;
   } | null>(null)
   const [reward, setReward] = useState<number | null>(null)
 
   const handleStatusChange = async (taskId: number, newStatus: CollectionTask['status']) => {
+    if(newStatus=== 'in_progress' && navigator.geolocation){
+      navigator.geolocation.getCurrentPosition(
+        (position)=> {
+          const coords = {
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+          }
+          setLocationCoords(coords)
+          console.log('latitude and longitude ', coords)
+        },
+        (error) => {
+          console.error('Geolocation error ', error)
+        }
+      )
+    }
     if (!user) {
       toast.error('Please log in to collect waste.')
       return
@@ -104,124 +127,160 @@ export default function CollectPage() {
     }
   }
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) {
-      const reader = new FileReader()
-      reader.onloadend = () => {
-        setVerificationImage(reader.result as string)
+  const handleImageUpload = (
+  e: React.ChangeEvent<HTMLInputElement>,
+  type: 'before' | 'after'
+) => {
+  const file = e.target.files?.[0];
+  if (file) {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64String = (reader.result as string).split(',')[1]; // Strip metadata
+      if (type === 'before') {
+        setBeforeImageBase64(base64String);
+      } else {
+        setAfterImageBase64(base64String);
       }
-      reader.readAsDataURL(file)
-    }
+    };
+    reader.readAsDataURL(file);
   }
+};
+
 
   const readFileAsBase64 = (dataUrl: string): string => {
     return dataUrl.split(',')[1]
   }
 
   const handleVerify = async () => {
-    if (!selectedTask || !verificationImage || !user) {
-      toast.error('Missing required information for verification.')
-      return
-    }
-    if (!isCollector) {
-      toast.error('Only waste collectors can verify waste collection.')
-      return
-    }
-    setVerificationStatus('verifying')
-    
+  if (!selectedTask || !beforeImageBase64 || !afterImageBase64 || !user) {
+    toast.error('Missing required information for verification.');
+    return;
+  }
+
+  if (!isCollector) {
+    toast.error('Only waste collectors can verify waste collection.');
+    return;
+  }
+
+  setVerificationStatus('verifying');
+
+  try {
+    const genAI = new GoogleGenerativeAI(geminiApiKey!);
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+    // Get geolocation
+    let currentLocation: { lat: number, lng: number } | null = null;
     try {
-      const genAI = new GoogleGenerativeAI(geminiApiKey!)
-      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" })
+      const position = await new Promise<GeolocationPosition>((resolve, reject) =>
+        navigator.geolocation.getCurrentPosition(resolve, reject)
+      );
+      currentLocation = {
+        lat: position.coords.latitude,
+        lng: position.coords.longitude
+      };
+      console.log('Collector location points: ', currentLocation);
+    } catch (err) {
+      console.warn('Unable to fetch location. Proceeding without it.');
+    }
 
-      const base64Data = readFileAsBase64(verificationImage)
-
-      const imageParts = [
-        {
-          inlineData: {
-            data: base64Data,
-            mimeType: 'image/jpeg', // Adjust this if you know the exact type
-          },
+    const imageParts = [
+      {
+        inlineData: {
+          data: beforeImageBase64,
+          mimeType: 'image/jpeg',
         },
-      ]
+      },
+      {
+        inlineData: {
+          data: afterImageBase64,
+          mimeType: 'image/jpeg',
+        },
+      },
+    ];
 
-      const prompt = `You are an expert in waste management and recycling. Analyze this image and provide:
-        1. Confirm if the waste type matches: ${selectedTask.wasteType}
-        2. The reported quantity is: ${selectedTask.amount}
+    const prompt = `You are an expert in waste collection verification. Analyze the two images (before and after) and determine:
 
-           - Check if the visible waste appears consistent with this type and amount.
-           - Estimate whether the *quantity* in the image visually aligns with the reported amount.
-           - You can use visual cues: assume one filled garbage bag ≈ 5kg, a small basket ≈ 2kg, or a pile covering ~1 square meter ≈ 5–7kg.
-           - Assume the quantity is correct unless there is clear visual evidence that it is significantly less or more.
-           - If it's hard to tell from the image, mark 'quantityMatch' as true.
+1. Is it the *same location* in both images? (Look at background, landmarks, angles)
+2. Does the *after* image show that the area is now clean and waste has been removed?
+3. Does the visible waste type match the reported type: ${selectedTask.wasteType}?
+4. Does the quantity appear consistent with the reported: ${selectedTask.amount}?
 
-        3. Your confidence level in this assessment (as a percentage)
-        
-        Respond in JSON format like this:
-        {
-          "wasteTypeMatch": true/false,
-          "quantityMatch": true/false,
-          "confidence": confidence level as a number between 0 and 1
-        }`
+- Estimate: 1 garbage bag ≈ 5kg, small basket ≈ 2kg, 1 sq.m. pile ≈ 5–7kg.
+- If unclear, assume quantity is accurate unless obvious mismatch.
 
-      const result = await model.generateContent([prompt, ...imageParts])
-      const response = await result.response
-      const rawText = response.text();
-      console.log("Raw Gemini response:", rawText);
+5. The collector's current location is:
+${currentLocation ? `Latitude: ${currentLocation.lat}, Longitude: ${currentLocation.lng}` : 'Not Available'}
 
-// Strip triple backticks (```json and ```)
-      const cleanText = rawText
-                        .replace(/```json\s*/i, '')  // remove opening fence
-                        .replace(/```/, '')           // remove closing fence
-                        .trim();
+Assume the task location is: "${selectedTask.location}"
 
+Compare the two and check if the collector was likely on-site.
 
+Respond in JSON format like:
+{
+  "sameLocation": true,
+  "cleaned": true,
+  "wasteTypeMatch": true,
+  "quantityMatch": true,
+  "confidence": 0.92
+}`;
 
+    const result = await model.generateContent([prompt, ...imageParts]);
+    const response = await result.response;
+    const rawText = response.text();
+    console.log("Raw Gemini response:", rawText);
 
-      
-      try {
-        const parsedResult = JSON.parse(cleanText)
-        setVerificationResult({
-          wasteTypeMatch: parsedResult.wasteTypeMatch,
-          quantityMatch: parsedResult.quantityMatch,
-          confidence: parsedResult.confidence
-        })
-        setVerificationStatus('success')
-        
-        if (parsedResult.wasteTypeMatch && parsedResult.quantityMatch && parsedResult.confidence > 0.7) {
-          await handleStatusChange(selectedTask.id, 'verified')
-          const earnedReward = Math.floor(Math.random() * 50) + 10 // Random reward between 10 and 59
-          
-          // Save the reward
-          await saveReward(user.id, earnedReward)
+    // Clean Gemini JSON response
+      const jsonMatch = rawText.match(/\{[\s\S]*?\}/);
+  if (!jsonMatch) {
+    throw new Error("No JSON object found in the response");
+  }
 
-          // Save the collected waste
-          await saveCollectedWaste(selectedTask.id, user.id, parsedResult)
+    try {
+      const parsedResult = JSON.parse(jsonMatch[0]);
 
-          setReward(earnedReward)
-          toast.success(`Verification successful! You earned ${earnedReward} tokens!`, {
-            duration: 5000,
-            position: 'top-center',
-          })
-        } else {
-          toast.error('Verification failed. The collected waste does not match the reported waste.', {
-            duration: 5000,
-            position: 'top-center',
-          })
-        }
-      } catch (error) {
-        console.log(error);
-        
-        console.error('Failed to parse JSON response:', cleanText
+      setVerificationResult({
+        sameLocation: parsedResult.sameLocation,
+        cleaned: parsedResult.cleaned,
+        wasteTypeMatch: parsedResult.wasteTypeMatch,
+        quantityMatch: parsedResult.quantityMatch,
+        confidence: parsedResult.confidence,
+      });
 
-        )
-        setVerificationStatus('failure')
+      setVerificationStatus('success');
+
+      if (
+        parsedResult.sameLocation &&
+        parsedResult.cleaned &&
+        parsedResult.wasteTypeMatch &&
+        parsedResult.quantityMatch &&
+        parsedResult.confidence > 0.7
+      ) {
+        await handleStatusChange(selectedTask.id, 'verified');
+        const earnedReward = Math.floor(Math.random() * 50) + 10; // Random reward between 10 and 59
+
+        await saveReward(user.id, earnedReward);
+        await saveCollectedWaste(selectedTask.id, user.id, parsedResult);
+
+        setReward(earnedReward);
+        toast.success(`Verification successful! You earned ${earnedReward} tokens!`, {
+          duration: 5000,
+          position: 'top-center',
+        });
+      } else {
+        toast.error('Verification failed. The collected waste does not match the report.', {
+          duration: 5000,
+          position: 'top-center',
+        });
       }
     } catch (error) {
-      console.error('Error verifying waste:', error)
-      setVerificationStatus('failure')
+      console.error('Failed to parse JSON response:', cleanText);
+      setVerificationStatus('failure');
     }
+  } catch (error) {
+    console.error('Error verifying waste:', error);
+    setVerificationStatus('failure');
   }
+};
 
   const filteredTasks = tasks.filter(task =>
     task.location.toLowerCase().includes(searchTerm.toLowerCase())
@@ -347,61 +406,164 @@ export default function CollectPage() {
       )}
 
       {selectedTask && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <h3 className="text-xl font-semibold mb-4">Verify Collection</h3>
-            <p className="mb-4 text-sm text-gray-600">Upload a photo of the collected waste to verify and earn your reward.</p>
-            <div className="mb-4">
-              <label htmlFor="verification-image" className="block text-sm font-medium text-gray-700 mb-2">
-                Upload Image
+  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+    <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+      <h3 className="text-xl font-semibold mb-4">Verify Collection</h3>
+      <p className="mb-4 text-sm text-gray-600">
+        Upload before and after images of the waste collection to verify and earn your reward.
+      </p>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-6">
+        {/* Before Image Upload */}
+        <div>
+          <label htmlFor="before-image" className="block text-sm font-medium text-gray-700 mb-2">
+            Before Collection
+          </label>
+          <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md">
+            <div className="space-y-1 text-center">
+              <Upload className="mx-auto h-12 w-12 text-gray-400" />
+              <label
+                htmlFor="before-image"
+                className="relative cursor-pointer bg-white rounded-md font-medium text-blue-600 hover:text-blue-500"
+              >
+                <span>Upload Before</span>
+                <input
+                  id="before-image"
+                  type="file"
+                  className="sr-only"
+                  accept="image/*"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] || null;
+                    setBeforeImage(file);
+                    if(file){
+                      const reader = new FileReader();
+                      reader.onloadend = () => {
+                        const base64String = (reader.result as string).split(',')[1];
+                        setBeforeImageBase64(base64String);
+                      }
+                      reader.readAsDataURL(file);
+                    }
+                  }}
+                />
               </label>
-              <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md">
-                <div className="space-y-1 text-center">
-                  <Upload className="mx-auto h-12 w-12 text-gray-400" />
-                  <div className="flex text-sm text-gray-600">
-                    <label
-                      htmlFor="verification-image"
-                      className="relative cursor-pointer bg-white rounded-md font-medium text-blue-600 hover:text-blue-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500"
-                    >
-                      <span>Upload a file</span>
-                      <input id="verification-image" name="verification-image" type="file" className="sr-only" onChange={handleImageUpload} accept="image/*" />
-                    </label>
-                  </div>
-                  <p className="text-xs text-gray-500">PNG, JPG, GIF up to 10MB</p>
-                </div>
-              </div>
+              <p className="text-xs text-gray-500">PNG, JPG, GIF up to 10MB</p>
             </div>
-            {verificationImage && (
-              <img src={verificationImage} alt="Verification" className="mb-4 rounded-md w-full" />
-            )}
-            <Button
-              onClick={handleVerify}
-              className="w-full"
-              disabled={!verificationImage || verificationStatus === 'verifying'}
-            >
-              {verificationStatus === 'verifying' ? (
-                <>
-                  <Loader className="animate-spin -ml-1 mr-3 h-5 w-5" />
-                  Verifying...
-                </>
-              ) : 'Verify Collection'}
-            </Button>
-            {verificationStatus === 'success' && verificationResult && (
-              <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-md">
-                <p>Waste Type Match: {verificationResult.wasteTypeMatch ? 'Yes' : 'No'}</p>
-                <p>Quantity Match: {verificationResult.quantityMatch ? 'Yes' : 'No'}</p>
-                <p>Confidence: {(verificationResult.confidence * 100).toFixed(2)}%</p>
-              </div>
-            )}
-            {verificationStatus === 'failure' && (
-              <p className="mt-2 text-red-600 text-center text-sm">Verification failed. Please try again.</p>
-            )}
-            <Button onClick={() => setSelectedTask(null)} variant="outline" className="w-full mt-2">
-              Close
-            </Button>
           </div>
+          {beforeImage && (
+            <img
+              src={URL.createObjectURL(beforeImage)}
+              alt="Before Collection"
+              className="mt-3 rounded-md w-full"
+            />
+          )}
         </div>
+
+        {/* After Image Upload */}
+        <div>
+          <label htmlFor="after-image" className="block text-sm font-medium text-gray-700 mb-2">
+            After Collection
+          </label>
+          <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md">
+            <div className="space-y-1 text-center">
+              <Upload className="mx-auto h-12 w-12 text-gray-400" />
+              <label
+                htmlFor="after-image"
+                className="relative cursor-pointer bg-white rounded-md font-medium text-blue-600 hover:text-blue-500"
+              >
+                <span>Upload After</span>
+                <input
+                  id="after-image"
+                  type="file"
+                  className="sr-only"
+                  accept="image/*"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] || null;
+                    setAfterImage(file);
+                    if(file){
+                      const reader = new FileReader();
+                      reader.onloadend = () => {
+                        const base64String = (reader.result as string).split(',')[1];
+                        setAfterImageBase64(base64String);
+                      }
+                      reader.readAsDataURL(file);
+                    }
+                  }}
+                />
+              </label>
+              <p className="text-xs text-gray-500">PNG, JPG, GIF up to 10MB</p>
+            </div>
+          </div>
+          {afterImage && (
+            <img
+              src={URL.createObjectURL(afterImage)}
+              alt="After Collection"
+              className="mt-3 rounded-md w-full"
+            />
+          )}
+        </div>
+      </div>
+
+      <Button
+        onClick={handleVerify}
+        className="w-full"
+        disabled={!beforeImage || !afterImage || verificationStatus === 'verifying'}
+      >
+        {verificationStatus === 'verifying' ? (
+          <>
+            <Loader className="animate-spin -ml-1 mr-3 h-5 w-5" />
+            Verifying...
+          </>
+        ) : (
+          'Verify Collection'
+        )}
+      </Button>
+
+      {verificationStatus === 'success' && verificationResult && (
+  <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-md space-y-2 text-sm">
+    <div className="flex justify-between">
+      <span className="font-medium">✅ Waste Type Match:</span>
+      <span className={verificationResult.wasteTypeMatch ? 'text-green-700' : 'text-red-600'}>
+        {verificationResult.wasteTypeMatch ? 'Yes' : 'No'}
+      </span>
+    </div>
+    <div className="flex justify-between">
+      <span className="font-medium">✅ Quantity Match:</span>
+      <span className={verificationResult.quantityMatch ? 'text-green-700' : 'text-red-600'}>
+        {verificationResult.quantityMatch ? 'Yes' : 'No'}
+      </span>
+    </div>
+    <div className="flex justify-between">
+      <span className="font-medium">📍 Same Location:</span>
+      <span className={verificationResult.sameLocation ? 'text-green-700' : 'text-red-600'}>
+        {verificationResult.sameLocation ? 'Yes' : 'No'}
+      </span>
+    </div>
+    <div className="flex justify-between">
+      <span className="font-medium">🧹 Area Cleaned:</span>
+      <span className={verificationResult.cleaned ? 'text-green-700' : 'text-red-600'}>
+        {verificationResult.cleaned ? 'Yes' : 'No'}
+      </span>
+    </div>
+    <div className="flex justify-between">
+      <span className="font-medium">📊 Confidence:</span>
+      <span className="text-blue-700 font-semibold">
+        {(verificationResult.confidence * 100).toFixed(2)}%
+      </span>
+    </div>
+  </div>
+)}
+
+
+      {verificationStatus === 'failure' && (
+        <p className="mt-2 text-red-600 text-center text-sm">Verification failed. Please try again.</p>
       )}
+
+      <Button onClick={() => setSelectedTask(null)} variant="outline" className="w-full mt-2">
+        Close
+      </Button>
+    </div>
+  </div>
+)}
 
       {/* Add a conditional render to show user info or login prompt */}
       {/* {user ? (

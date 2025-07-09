@@ -29,7 +29,8 @@ export async function createReport(
   amount: string,
   imageUrl?: string,
   type?: string,
-  verificationResult?: any
+  verificationResult?: any,
+  coordinates?: { lat: number; lng: number }
 ) {
   try {
     const [report] = await db
@@ -42,6 +43,7 @@ export async function createReport(
         imageUrl,
         verificationResult,
         status: "pending",
+        coordinates,
       })
       .returning()
       .execute();
@@ -425,6 +427,9 @@ export async function createTransaction(userId: number, type: 'earned_report' | 
 export async function redeemReward(userId: number, rewardId: number) {
   try {
     const userReward = await getOrCreateReward(userId) as any;
+
+    console.log("User reward:", userReward);
+
     
     if (rewardId === 0) {
       // Redeem all points
@@ -444,6 +449,9 @@ export async function redeemReward(userId: number, rewardId: number) {
     } else {
       // Existing logic for redeeming specific rewards
       const availableReward = await db.select().from(Rewards).where(eq(Rewards.id, rewardId)).execute();
+
+      console.log("User reward:", userReward);
+
 
       if (!userReward || !availableReward[0] || userReward.points < availableReward[0].points) {
         throw new Error("Insufficient points or invalid reward");
