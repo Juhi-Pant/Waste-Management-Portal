@@ -1,6 +1,6 @@
-import {ArrowRight, Users, MapPin, ChevronRight,Leaf, Recycle, Coins } from 'lucide-react'
+import { MapPin, Leaf, Recycle, Coins } from 'lucide-react'
 import {Button} from '@/components/ui/button'
-import Link from 'next/link'
+
 
 function AnimatedGlobe () {
   return (

@@ -1,11 +1,13 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { Trash2, MapPin, CheckCircle, Clock, ArrowRight, Camera, Upload, Loader, Calendar, Weight, Search } from 'lucide-react'
+import { Trash2, MapPin, CheckCircle, Clock, Upload, Loader, Calendar, Weight, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { toast } from 'react-hot-toast'
 import { getWasteCollectionTasks, updateTaskStatus, saveReward, saveCollectedWaste, getUserByEmail } from '@/utils/db/actions'
 import { GoogleGenerativeAI } from "@google/generative-ai"
+import Image from 'next/image'
+
 
 // Make sure to set your Gemini API key in your environment variables
 const geminiApiKey = process.env.GEMINI_API_KEY
@@ -31,7 +33,6 @@ export default function CollectPage() {
   const [user, setUser] = useState<{ id: number; email: string; name: string } | null>(null)
   const [userRole, setUserRole] = useState<string | null>(null)
   const [isCollector, setIsCollector] = useState(false)
-  const [locationCoords, setLocationCoords] = useState<{ lat: number; lng: number } | null>(null);
 
 
   useEffect(() => {
@@ -84,7 +85,6 @@ const [afterImageBase64, setAfterImageBase64] = useState<string | null>(null);
     sameLocation: boolean;
     cleaned: boolean;
   } | null>(null)
-  const [reward, setReward] = useState<number | null>(null)
 
   const handleStatusChange = async (taskId: number, newStatus: CollectionTask['status']) => {
     if(newStatus=== 'in_progress' && navigator.geolocation){
@@ -94,7 +94,6 @@ const [afterImageBase64, setAfterImageBase64] = useState<string | null>(null);
             lat: position.coords.latitude,
             lng: position.coords.longitude,
           }
-          setLocationCoords(coords)
           console.log('latitude and longitude ', coords)
         },
         (error) => {
@@ -127,29 +126,7 @@ const [afterImageBase64, setAfterImageBase64] = useState<string | null>(null);
     }
   }
 
-  const handleImageUpload = (
-  e: React.ChangeEvent<HTMLInputElement>,
-  type: 'before' | 'after'
-) => {
-  const file = e.target.files?.[0];
-  if (file) {
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const base64String = (reader.result as string).split(',')[1]; // Strip metadata
-      if (type === 'before') {
-        setBeforeImageBase64(base64String);
-      } else {
-        setAfterImageBase64(base64String);
-      }
-    };
-    reader.readAsDataURL(file);
-  }
-};
 
-
-  const readFileAsBase64 = (dataUrl: string): string => {
-    return dataUrl.split(',')[1]
-  }
 
   const handleVerify = async () => {
   if (!selectedTask || !beforeImageBase64 || !afterImageBase64 || !user) {
@@ -180,7 +157,7 @@ const [afterImageBase64, setAfterImageBase64] = useState<string | null>(null);
       };
       console.log('Collector location points: ', currentLocation);
     } catch (err) {
-      console.warn('Unable to fetch location. Proceeding without it.');
+      console.warn('Unable to fetch location. Proceeding without it.', err);
     }
 
     const imageParts = [
@@ -260,8 +237,6 @@ Respond in JSON format like:
 
         await saveReward(user.id, earnedReward);
         await saveCollectedWaste(selectedTask.id, user.id, parsedResult);
-
-        setReward(earnedReward);
         toast.success(`Verification successful! You earned ${earnedReward} tokens!`, {
           duration: 5000,
           position: 'top-center',
@@ -273,7 +248,7 @@ Respond in JSON format like:
         });
       }
     } catch (error) {
-      console.error('Failed to parse JSON response:', cleanText);
+      console.error('Failed to parse JSON response:', error);
       setVerificationStatus('failure');
     }
   } catch (error) {
@@ -292,8 +267,16 @@ Respond in JSON format like:
     currentPage * ITEMS_PER_PAGE
   )
   
-  
+  if (loading) {
   return (
+    <div className="flex justify-center items-center h-64">
+      <div className="text-gray-600 text-lg">Loading tasks...</div>
+    </div>
+  )
+}
+
+  return (
+    
     <div className="p-4 sm:p-6 lg:p-8 max-w-4xl mx-auto">
       <h1 className="text-3xl font-semibold mb-6 text-gray-800">Waste Collection Tasks</h1>
       
@@ -450,11 +433,14 @@ Respond in JSON format like:
             </div>
           </div>
           {beforeImage && (
-            <img
-              src={URL.createObjectURL(beforeImage)}
-              alt="Before Collection"
-              className="mt-3 rounded-md w-full"
-            />
+            <Image
+  src={URL.createObjectURL(beforeImage)}
+  alt="Before Collection"
+  width={400}
+  height={300}
+  className="mt-3 rounded-md w-full object-cover"
+/>
+
           )}
         </div>
 
@@ -494,11 +480,13 @@ Respond in JSON format like:
             </div>
           </div>
           {afterImage && (
-            <img
-              src={URL.createObjectURL(afterImage)}
-              alt="After Collection"
-              className="mt-3 rounded-md w-full"
-            />
+             <Image
+  src={URL.createObjectURL(afterImage)}
+  alt="After Collection"
+  width={400}
+  height={300}
+  className="mt-3 rounded-md w-full object-cover"
+/>
           )}
         </div>
       </div>

@@ -1,6 +1,6 @@
 'use client'
 import {useState, useCallback, useEffect} from 'react'
-import {MapPin, UploadIcon, CheckCircle, Loader, AmbulanceIcon} from 'lucide-react'
+import {MapPin, UploadIcon, CheckCircle, Loader} from 'lucide-react'
 import {Button} from '@/components/ui/button'
 import {GoogleGenerativeAI} from '@google/generative-ai'
 import {StandaloneSearchBox, useJsApiLoader} from '@react-google-maps/api'
@@ -8,16 +8,44 @@ import {Libraries} from '@react-google-maps/api'
 import {useRouter} from 'next/navigation'
 import {toast} from 'react-hot-toast'
 import { createReport, getRecentReports, getUserByEmail } from '@/utils/db/actions'
+import Image from 'next/image'
 
-const geminiApiKey = process.env.GEMINI_API_KEY as any
-const googleMapsApiKey = process.env.GOOGLE_MAPS_API_KEY as any
+const geminiApiKey = process.env.GEMINI_API_KEY ?? ''
+const googleMapsApiKey = process.env.GOOGLE_MAPS_API_KEY ?? ''
 
 const libraries:Libraries = ['places']
 export default function ReportPage () {
-    const[user, setUser] = useState('') as any;
+   type User = {
+  id: number;
+  name: string;
+  email: string;
+};
+
+type Report = {
+  id: number;
+  createdAt: Date;
+  location: string;
+  wasteType: string;
+  amount: string;
+  imageUrl: string | null;
+  verificationResult: unknown;
+  status: string;
+  collectorId: number | null;
+  userId: number;
+  coordinates: {
+    lat: number;
+    lng: number;
+  } | null;
+};
+
+
+const [user, setUser] = useState<User | null>(null);
+
+
+    
     const router = useRouter();
     const [reports, setReports] = useState<Array<{
-          id: Number;
+          id: number;
           location: string;
           wasteType: string;
           amount: string;
@@ -49,7 +77,6 @@ export default function ReportPage () {
     const onload = useCallback((ref: google.maps.places.SearchBox) => {
         setSearchBox(ref)
     }, [])
-    const [coordinates, setCoordinates] = useState<{lat: number, lng: number} | null>(null);
     const geocodeLatLng = (lat: number, lng: number)=>{
       const geocoder = new google.maps.Geocoder();
       const latLng = {lat, lng};
@@ -68,28 +95,31 @@ export default function ReportPage () {
         }
       })
     }
+    
+    useEffect(() => {
+  if (isLoaded) {
     const detectCurrentLocation = () => {
-      if(navigator.geolocation){
+      if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
           (position) => {
-            const {latitude, longitude} = position.coords;
-            setCoordinates({lat: latitude, lng: longitude});
+            const { latitude, longitude } = position.coords;
             geocodeLatLng(latitude, longitude);
           },
           (error) => {
-            console.error("Error detecting location: ", error)
+            console.error("Error detecting location: ", error);
           }
-        )
+        );
+      } else {
+        console.error("Geolocation not supported");
       }
-      else {
-        console.error('Gelocation not supported')
-      }
-    }
-    useEffect (() => {
-    if(isLoaded){
-      detectCurrentLocation();
-    }
-    }, [isLoaded])
+    };
+
+    detectCurrentLocation();
+  }
+}, [isLoaded]);
+
+
+
     const onPlaceChange = () => {
       if(searchBox){
         const places = searchBox.getPlaces()
@@ -256,10 +286,10 @@ if (!report) {
         const checkUser = async () => {
             const email = localStorage.getItem('userEmail');
             if(email){
-                let user = await getUserByEmail(email)
+                const user = await getUserByEmail(email)
                 setUser(user);
-                const recentReports = await getRecentReports () as any
-                const formattedReports = recentReports?.map((report: any)=> ({
+                const recentReports: Report[] = await getRecentReports();
+                const formattedReports = recentReports.map((report)=> ({
                     ...report,
                     createdAt: report.createdAt.toISOString().split('T')[0]
             }))
@@ -300,7 +330,7 @@ if (!report) {
         
         {preview && (
             <div className='mt-4 mb-8'>
-                <img src={preview} alt="Waste preview" className='max-w-full h-auto rounded-xl shadow-md' />
+                <Image src={preview} alt="Waste preview" className='max-w-full h-auto rounded-xl shadow-md' />
             </div>
         )}
         <Button 

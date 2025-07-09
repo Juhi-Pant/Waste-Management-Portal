@@ -1,27 +1,23 @@
-//@ts-nocheck
 'use client'
 import {useState, useEffect} from 'react'
 import {createUser, getUserByEmail, getUnreadNotifications, getUserBalance, markNotificationAsRead} from '@/utils/db/actions'
 import Link from 'next/link'
-import {usePathname} from 'next/navigation'
 import {Button} from './ui/button'
 import { DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
-    DropdownMenuLabel,
-    DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from './ui/dropdown-menu'
 import { Badge } from "@/components/ui/badge"
 import {Web3Auth} from '@web3auth/modal'
-import {CHAIN_NAMESPACES, IProvider, WEB3AUTH_NETWORK} from '@web3auth/base'
+import {CHAIN_NAMESPACES} from '@web3auth/base'
 import {EthereumPrivateKeyProvider} from '@web3auth/ethereum-provider'
 //import {useMediaQuery} from ''
-import {Menu, Coins, Leaf, Search, Bell, User, LogOut, ChevronDown, LogIn} from 'lucide-react'
+import {Menu, Coins, Leaf, Search, Bell, User, ChevronDown, LogIn} from 'lucide-react'
 import {useMediaQuery} from '@/hook/useMediaQuery'
 import { confirmAlert } from 'react-confirm-alert'
 import 'react-confirm-alert/src/react-confirm-alert.css'; 
-import { title } from 'process'
+import type { SafeEventEmitterProvider } from '@web3auth/base';
 
 const clientId = process.env.WEB3_CLIENT_ID || '';
 
@@ -47,16 +43,33 @@ interface HeaderProps {
     totalEarnings: number
 }
 
-export default function Header ({onMenuClick, totalEarnings}: HeaderProps){
-    const [provider, setProvider] = useState<IProvider | null>(null)
+export default function Header ({onMenuClick}: HeaderProps){
+
+interface AppNotification {
+  id: number;
+  createdAt: Date;
+  userId: number;
+  message: string;
+  type: string;
+  isRead: boolean;
+}
+
+interface UserInfo {
+  id: number;
+  name: string;
+  email: string;
+  // Add other properties as needed
+}
+
     const [loggedIn, setLoggedIn ]= useState(false)
     const [loading, setLoading] = useState(true)
-    const [userInfo, setUserInfo] = useState<any>(null)
-    const pathName = usePathname()
-    const[notification, setNotification] = useState<Notification[]>([])
+    const [userInfo, setUserInfo] = useState<UserInfo|null>(null)
+    const[notification, setNotification] = useState<AppNotification[]>([])
     const[balance, setBalance] = useState(0)
     const isMobile = useMediaQuery("(max-width: 768px")
     const [isInitialized, setIsInitialized] = useState(false);
+    const [provider, setProvider] = useState<SafeEventEmitterProvider | null>(null); 
+
     useEffect(() => {
         const init = async() => {
             try {
@@ -65,7 +78,7 @@ export default function Header ({onMenuClick, totalEarnings}: HeaderProps){
                 setIsInitialized(true)
                 if(web3Auth.connected){
                     setLoggedIn(true)
-                    const user = await web3Auth.getUserInfo();
+                    const user = await web3Auth.getUserInfo() as UserInfo;
                     setUserInfo(user)
                     if(user.email){
                         localStorage.setItem('userEmail', user.email)
@@ -124,6 +137,12 @@ export default function Header ({onMenuClick, totalEarnings}: HeaderProps){
         }
     }, [userInfo])
 
+    useEffect(() => {
+  if (provider) {
+    console.log("Provider is ready:", provider);
+  }
+}, [provider]);
+
     const handelLogin = async () => {
         if(!web3Auth) {
             console.log('Not initialised web3Auth')
@@ -137,7 +156,7 @@ export default function Header ({onMenuClick, totalEarnings}: HeaderProps){
             const web3AuthProvider = await web3Auth.connect();
             setProvider(web3AuthProvider)
             setLoggedIn(true)
-            const user = await web3Auth.getUserInfo();
+            const user = await web3Auth.getUserInfo() as UserInfo;
             setUserInfo(user)
             if(user.email){
                 localStorage.setItem('userEmail', user.email)
@@ -200,15 +219,13 @@ export default function Header ({onMenuClick, totalEarnings}: HeaderProps){
     }
     const getUserInfo = async () => {
         if(web3Auth.connected){
-           const user = await web3Auth.getUserInfo();
+           const user = await web3Auth.getUserInfo() as UserInfo;
            setUserInfo(user);
            if(user.email){
             localStorage.setItem('useEmail', user.email)
-            try {
+
                 await createUser(user.email, user.name || 'Anonymous User')
-             } catch (error) {
               
-             }
            }
         }
     }
@@ -263,7 +280,7 @@ export default function Header ({onMenuClick, totalEarnings}: HeaderProps){
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align='end' className='w-64'>
                         {notification.length >0 ? (
-                            notification.map((notification:any) => (
+                            notification.map((notification) => (
                               <DropdownMenuItem key={notification.id} onClick={() => handleNotificationClick(notification.id)}>
                                 <div className='flex-col'>
                                     <span className='font-medium '>{notification.type}</span>

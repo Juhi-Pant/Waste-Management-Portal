@@ -1,6 +1,5 @@
 'use client'
 import {useState, useEffect} from 'react'
-import {Inter} from 'next/font/google'
 import './globals.css'
 import {Toaster} from 'react-hot-toast'
 import Header from '../components/Header'
@@ -11,7 +10,7 @@ import { getAvailableRewards, getUserByEmail } from '@/utils/db/actions'
 
 
 
-const inter = Inter({subsets: ['latin']})
+
 export default function RootLayout ({
   children,
 }:Readonly<{
@@ -19,6 +18,16 @@ export default function RootLayout ({
 }>) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [totalEarning, setTotalEarning] = useState(0)
+
+  type Reward = {
+  id: number;
+  name: string;
+  cost: number;
+  description: string | null;
+  collectionInfo: string;
+};
+
+
   useEffect(() => {
     const fetchTotalEarnings = async () => {
       try {
@@ -26,8 +35,9 @@ export default function RootLayout ({
         if(userEmail){
           const user = await getUserByEmail(userEmail)
           if(user){
-            const availRewards = await getAvailableRewards(user.id) as any;
-            setTotalEarning(availRewards);
+            const availRewards = await getAvailableRewards(user.id) as Reward[];
+            const total = availRewards.reduce((sum, reward) => sum + reward.cost, 0); 
+            setTotalEarning(total);
             
           }
         }
@@ -35,7 +45,7 @@ export default function RootLayout ({
         console.error('Error fetching total earnings ',error)
       }
     };
-    fetchTotalEarnings
+    fetchTotalEarnings()
   }, [])
   return (
     <html lang='en'>

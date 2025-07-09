@@ -2,7 +2,6 @@
 import {useState, useEffect} from 'react'
 import {Loader, Award, User, Trophy, Crown} from 'lucide-react'
 import {toast} from 'react-hot-toast'
-import { db } from '@/utils/db/dbConfig'
 import { getAllRewards, getUserByEmail } from '@/utils/db/actions'
 
 type Reward = {
